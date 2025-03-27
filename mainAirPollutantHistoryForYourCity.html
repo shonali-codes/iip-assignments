@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+        body {
+		margin: 0;
+		padding: 0;
+	}
+	select, button {
+		position: absolute;
+		z-index: 100;
+	}
+	select {
+		top: 20px;
+		left: 20px;
+	}
+	button {
+		left: 20px;
+		bottom: 20px;
+		padding: 8px 20px;
+		cursor: pointer;
+		font-size: 16px;
+		border: 2px solid white;
+		background: rgba(0, 0, 0, 0.5);
+		color: white;
+		border-radius: 4px;
+	}
+    </style>
+</head>
+<body>
+    <select id="citySelect"></select>
+	<button id="playPauseButton">Pause</button>
+
+    <script>
+let data;
+let pollutants = [];
+let currentIndex = 0;
+let cityImage;
+let isPlaying = true;
+let lastUpdateTime = 0;
+let particles = [];
+let canvas;
+
+const updateInterval = 100;
+
+const cities = {
+  'Kolkata': 'https://raw.githubusercontent.com/shonali-codes/iip-assignments/main/kolkataCity2.jpg',
+  'Mumbai': 'https://raw.githubusercontent.com/shonali-codes/iip-assignments/main/mumbaiCity.jpg',
+  'Delhi': 'https://raw.githubusercontent.com/shonali-codes/iip-assignments/main/delhiCity.jpg',
+  'Bangalore': 'https://raw.githubusercontent.com/shonali-codes/iip-assignments/main/bangaloreCity.jpg',
+  'Chennai': 'https://raw.githubusercontent.com/shonali-codes/iip-assignments/main/chennaiCity.jpg',
+  'Jharsuguda': 'https://raw.githubusercontent.com/shonali-codes/iip-assignments/main/jharsugudaCity.jpg'
+};
+
+function preload() {
+  cityImage = loadImage(cities['Kolkata']);
+}
+
+function setup() {
+  canvas = createCanvas(windowWidth, windowHeight);
+  textAlign(CENTER, CENTER);
+  frameRate(30);
+  
+  const dropdown = select('#citySelect');
+  for (const city in cities) {
+    dropdown.option(city);
+  }
+  dropdown.changed(() => {
+    const selectedCity = dropdown.value();
+    cityImage = loadImage(cities[selectedCity]);
+    loadCityData(selectedCity);
+  });
+  
+  const playPauseBtn = select('#playPauseButton');
+  playPauseBtn.mousePressed(togglePlayPause);
+  
+  loadCityData('Kolkata');
+}
+
+class Particle {
+  constructor(x, y, color, value) {
+    this.x = x;
+    this.y = y;
+    this.color = color;
+    this.value = value;
+    this.size = random(5, 20);
+    this.speedX = random(-1, 1);
+    this.speedY = random(-2, -0.5);
+    this.life = 255;
+    this.originalX = x;
+  }
+
+  update() {
+    this.x += this.speedX;
+    this.y += this.speedY;
+    this.life -= 2;
+    this.x += sin((frameCount + this.originalX) * 0.05) * 0.5;
+  }
+
+  display() {
+    noStroke();
+    let c = color(this.color);
+    c.setAlpha(this.life);
+    fill(c);
+    ellipse(this.x, this.y, this.size);
+
+    if (this.life > 200) {
+      fill(255);
+      stroke(0);
+      strokeWeight(1);
+      textSize(12);
+      text(this.value.toFixed(1), this.x, this.y + 15);
+    }
+  }
+
+  isDead() {
+    return this.life <= 0;
+  }
+}
+
+function getDominantPollutant(data) {
+  if (!data) return { color: color(128, 128, 128), ratio: 0, name: 'Unknown' };
+
+  const pollutantConfig = {
+    pm2_5: { value: data.pm2_5 || 0, color: color(255, 99, 71), threshold: 100, name: 'PM2.5' },
+    pm10: { value: data.pm10 || 0, color: color(255, 165, 0), threshold: 150, name: 'PM10' },
+    no2: { value: data.no2 || 0, color: color(106, 90, 205), threshold: 100, name: 'NO₂' },
+    so2: { value: data.so2 || 0, color: color(60, 179, 113), threshold: 100, name: 'SO₂' }
+  };
+
+  let maxRatio = 0;
+  let dominantPollutant = null;
+
+  for (const [key, config] of Object.entries(pollutantConfig)) {
+    const ratio = config.value / config.threshold;
+    if (ratio > maxRatio) {
+      maxRatio = ratio;
+      dominantPollutant = { key, ratio, color: config.color, name: config.name };
+    }
+  }
+
+  return dominantPollutant || { color: color(128, 128, 128), ratio: 0, name: 'Unknown' };
+}
+
+function draw() {
+  background(0);
+  if (cityImage) {
+    image(cityImage, 0, 0, width, height);
+  }
+
+  if (!pollutants.length) {
+    fill(255);
+    noStroke();
+    textSize(24);
+    text('Loading data...', width / 2, height / 2);
+    return;
+  }
+
+  let currentData = pollutants[currentIndex];
+  if (!currentData) return;
+
+  textSize(32);
+  fill(255);
+  stroke(0);
+  strokeWeight(3);
+  text('Main Polluting Component History', width / 2, 30);
+
+  let dominant = getDominantPollutant(currentData);
+
+  if (dominant && dominant.color) {
+    let hazeColor = color(
+      dominant.color.levels[0] || 128,
+      dominant.color.levels[1] || 128,
+      dominant.color.levels[2] || 128,
+      map(dominant.ratio || 0, 0, 2, 20, 150)
+    );
+
+    noStroke();
+    fill(hazeColor);
+    rect(0, 0, width, height);
+  }
+
+  if (isPlaying && millis() - lastUpdateTime > updateInterval) {
+    if (currentIndex < pollutants.length - 1) {
+      currentIndex++;
+      lastUpdateTime = millis();
+    } else {
+      currentIndex = 0;
+    }
+  }
+
+  let sourceY = height - 100;
+  if (isPlaying && frameCount % 5 === 0) {
+    if (currentData.pm2_5) createSmoke(width * 0.2, sourceY, color(255, 99, 71), currentData.pm2_5);
+    if (currentData.pm10) createSmoke(width * 0.4, sourceY, color(255, 165, 0), currentData.pm10);
+    if (currentData.no2) createSmoke(width * 0.6, sourceY, color(106, 90, 205), currentData.no2);
+    if (currentData.so2) createSmoke(width * 0.8, sourceY, color(60, 179, 113), currentData.so2);
+  }
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    particles[i].update();
+    particles[i].display();
+    if (particles[i].isDead()) {
+      particles.splice(i, 1);
+    }
+  }
+
+  fill(255);
+  stroke(0);
+  strokeWeight(2);
+  textSize(24);
+  let formattedDate = currentData.date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  text(formattedDate, width / 2, 80);
+
+  drawLegend();
+}
+
+function createSmoke(x, y, pollutantColor, value) {
+  if (pollutantColor && isPlaying) {
+    for (let i = 0; i < 3; i++) {
+      particles.push(new Particle(x, y, pollutantColor, value));
+    }
+  }
+}
+
+function drawLegend() {
+  const padding = 20;
+  const spacing = 30;
+
+  push();
+  textAlign(LEFT, CENTER);
+  textSize(16);
+  strokeWeight(1);
+
+  fill(0, 150);
+  rect(padding, padding + 60, 150, 130, 5);
+
+  const items = [
+    { name: 'PM2.5', color: color(255, 99, 71) },
+    { name: 'PM10', color: color(255, 165, 0) },
+    { name: 'NO₂', color: color(106, 90, 205) },
+    { name: 'SO₂', color: color(60, 179, 113) }
+  ];
+
+  items.forEach((item, i) => {
+    const y = padding + 90 + (i * spacing);
+    fill(item.color);
+    noStroke();
+    circle(padding + 15, y, 12);
+    fill(255);
+    noStroke();
+    text(item.name, padding + 35, y);
+  });
+
+  pop();
+}
+
+function togglePlayPause() {
+  isPlaying = !isPlaying;
+  select('#playPauseButton').html(isPlaying ? 'Pause' : 'Play');
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+async function loadCityData(city) {
+  try {
+    const geoURL = `https://api.openweathermap.org/geo/1.0/direct?q=${city}&limit=5&appid=4cdf04740b39c7b3b5f894eda7585b27`;
+    const geoResponse = await fetch(geoURL);
+    const geoData = await geoResponse.json();
+    
+    if (geoData && geoData.length > 0) {
+      const { lat, lon } = geoData[0];
+      
+      // Get current timestamp
+      const endTimestamp = Math.floor(Date.now() / 1000);
+      
+      // Initialize empty array to store all pollution data
+      let allPollutionData = [];
+      
+      // Calculate timestamps for each year from 2020 to now
+      const startDate = new Date('2020-11-27T00:00:00Z');
+      const currentDate = new Date();
+      const years = currentDate.getFullYear() - startDate.getFullYear() + 1;
+      
+      // Fetch data year by year
+      for (let i = 0; i < years; i++) {
+        const yearStartDate = new Date(startDate);
+        yearStartDate.setFullYear(startDate.getFullYear() + i);
+        
+        let yearEndDate = new Date(yearStartDate);
+        yearEndDate.setFullYear(yearStartDate.getFullYear() + 1);
+        
+        // Adjust end date if it's beyond current date
+        if (yearEndDate > currentDate) {
+          yearEndDate = currentDate;
+        }
+        
+        const yearStartTimestamp = Math.floor(yearStartDate.getTime() / 1000);
+        const yearEndTimestamp = Math.floor(yearEndDate.getTime() / 1000);
+        
+        console.log(`Fetching data for ${yearStartDate.getFullYear()}...`);
+        
+        const pollutionURL = `https://api.openweathermap.org/data/2.5/air_pollution/history?lat=${lat}&lon=${lon}&start=${yearStartTimestamp}&end=${yearEndTimestamp}&appid=4cdf04740b39c7b3b5f894eda7585b27`;
+        
+        const pollutionResponse = await fetch(pollutionURL);
+        const pollutionData = await pollutionResponse.json();
+        
+        if (pollutionData && pollutionData.list) {
+          allPollutionData = [...allPollutionData, ...pollutionData.list];
+          console.log(`Received ${pollutionData.list.length} records for ${yearStartDate.getFullYear()}`);
+        }
+      }
+      
+      console.log(`Total records received: ${allPollutionData.length}`);
+      
+      // Process all collected data
+      particles = [];
+      
+      // Group data by date
+      const dailyData = {};
+      
+      allPollutionData.forEach(entry => {
+        const date = new Date(entry.dt * 1000);
+        const dateKey = date.toISOString().split('T')[0];
+        
+        if (!dailyData[dateKey]) {
+          dailyData[dateKey] = {
+            count: 0,
+            components: {
+              pm2_5: 0,
+              pm10: 0,
+              no2: 0,
+              so2: 0
+            }
+          };
+        }
+        
+        dailyData[dateKey].components.pm2_5 += entry.components.pm2_5;
+        dailyData[dateKey].components.pm10 += entry.components.pm10;
+        dailyData[dateKey].components.no2 += entry.components.no2;
+        dailyData[dateKey].components.so2 += entry.components.so2;
+        dailyData[dateKey].count++;
+      });
+      
+      pollutants = Object.entries(dailyData).map(([dateStr, data]) => ({
+        date: new Date(dateStr),
+        pm2_5: data.components.pm2_5 / data.count,
+        pm10: data.components.pm10 / data.count,
+        no2: data.components.no2 / data.count,
+        so2: data.components.so2 / data.count
+      }));
+
+      // Sort by date
+      pollutants.sort((a, b) => a.date - b.date);
+      currentIndex = 0;
+      isPlaying = true;
+      select('#playPauseButton').html('Pause');
+      
+      console.log(`Loaded ${pollutants.length} days of data from ${pollutants[0].date.toLocaleDateString()} to ${pollutants[pollutants.length-1].date.toLocaleDateString()}`);
+    }
+  } catch (error) {
+    console.error('Error loading data:', error);
+    console.error('Full error:', error.stack);
+  }
+}
+    </script>
+</body>
+</html>
